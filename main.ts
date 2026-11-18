@@ -13,10 +13,16 @@
  *   the close just rose). A full-size round trip costs roughly 26-36 bps in
  *   fee, slippage and price impact, so entries demand a dislocation well
  *   above that. Sell on a +2.0% take-profit over the average entry price, a
- *   -0.9% stop-loss, or after 360 bars. Two guards protect the unseen race
- *   window: no new position in the last 60 bars (a position needs time to
- *   work before the end-of-window flatten), and a circuit breaker that
- *   flattens and stops trading if equity falls 3% below its peak.
+ *   -1.2% stop-loss, or after 360 bars, then wait 60 bars before re-entering.
+ *   Three guards protect the unseen race window: no new position in the last
+ *   60 bars (a position needs time to work before the end-of-window flatten),
+ *   a circuit breaker that flattens and stops trading if equity falls 2%
+ *   below its peak, and a participation rule: if nothing has traded by bar
+ *   600 and the day is a clear uptrend (the close sits more than 0.6% above
+ *   its trailing 240-bar mean, and that mean has risen more than 0.45% over
+ *   the last 120 bars), buy once at full size so a grind-up day cannot leave
+ *   the entry with no trade at all. The exits above manage that position the
+ *   same as any other.
  */
 
 import { createInterface } from "node:readline";
@@ -26,11 +32,17 @@ const W = 240; // trailing window (bars) for the reference high
 const E_DROP = 0.016; // required fall from the trailing high to call it a dip
 const STAB = 10; // stabilisation lookback (bars)
 const TP = 0.020; // take-profit over average entry price
-const SL = 0.009; // stop-loss under average entry price
+const SL = 0.012; // stop-loss under average entry price
 const MAX_HOLD = 360; // bars, then sell whatever the price
-const COOLDOWN = 10; // bars to wait after an exit before re-entering
-const BREAKER = 0.03; // equity fall from peak that stops trading for the window
+const COOLDOWN = 60; // bars to wait after an exit before re-entering
+const BREAKER = 0.02; // equity fall from peak that stops trading for the window
 const LATE = 60; // no new entries in the last this many bars of the window
+const PART_T = 600; // participation: first bar it may fire
+const PART_LATEST = 1080; // participation: last bar it may fire
+const PART_W = 240; // participation: mean window (bars)
+const PART_SLOPE_W = 120; // participation: how far back the mean is compared
+const PART_MARGIN = 0.006; // participation: close must clear the mean by this
+const PART_SLOPE = 0.0045; // participation: the mean must have risen by this
 const N_BARS = 1440; // bars in a window
 const MAX_SLIP = 300; // max_slippage_bps sent on every order
 const MIN_NOTIONAL = 1_000_000; // 1 USDC in quote units
@@ -48,6 +60,7 @@ class Bot {
   coolUntil = -1;
   peakEq: number | null = null;
   stopped = false;
+  traded = false; // any buy decided this window (gates the participation rule)
 
   decide(seq: number, closeRaw: number, cash: number, qty: number, cost: number, equity: number): Order[] {
     const px = closeRaw / 1e5; // price_scale 5
@@ -100,6 +113,41 @@ class Bot {
           orders.push({ side: "buy", notional });
           this.entrySeq = seq + 1; // fills at the next bar's open
           this.entryPx = null;
+          this.traded = true;
+        }
+      }
+    }
+    if (
+      orders.length === 0 &&
+      !this.traded &&
+      seq >= PART_T &&
+      seq <= PART_LATEST &&
+      this.closes.length > PART_W + PART_SLOPE_W
+    ) {
+      // Participation: no trade yet and a clear uptrend; buy once so the day
+      // cannot end with the entry idle (an untraded entry misses the bar).
+      let sma = 0;
+      for (let i = this.closes.length - PART_W; i < this.closes.length; i++) {
+        sma += this.closes[i];
+      }
+      sma /= PART_W;
+      let smaPrev = 0;
+      for (
+        let i = this.closes.length - PART_W - PART_SLOPE_W;
+        i < this.closes.length - PART_SLOPE_W;
+        i++
+      ) {
+        smaPrev += this.closes[i];
+      }
+      smaPrev /= PART_W;
+      if (px > sma * (1.0 + PART_MARGIN) && sma > smaPrev * (1.0 + PART_SLOPE)) {
+        let notional = equity; // frac 1.0 of equity, capped by cash below
+        if (notional > cash) notional = cash;
+        if (notional >= MIN_NOTIONAL) {
+          orders.push({ side: "buy", notional });
+          this.entrySeq = seq + 1; // fills at the next bar's open
+          this.entryPx = null;
+          this.traded = true;
         }
       }
     }
