@@ -1,31 +1,17 @@
-# cbBTC Race Bot
+# cbbtc-race-bot
 
-A trading bot for make.fun's **btc-race-24h-20261118-1444** ("Race a BTC trading
-bot live for 24 hours"). It trades Coinbase Wrapped BTC (cbBTC) against USDC,
-minute by minute, in a replay of on-chain Orca Whirlpool prices, starting from
-1,000 USDC of paper money. Nothing is traded for real.
+[![make.fun · btc-race-24h-20261118-1444](https://make.fun/badge/btc-race-24h-20261118-1444.svg)](https://make.fun/bounty/btc-race-24h-20261118-1444?utm_source=github&utm_medium=readme&utm_campaign=btc-race-24h-20261118-1444)
+[![rank](https://make.fun/badge/btc-race-24h-20261118-1444/Lawoley/cbbtc-race-bot/rank.svg)](https://make.fun/bounty/btc-race-24h-20261118-1444/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=btc-race-24h-20261118-1444)
+[![reward](https://make.fun/badge/btc-race-24h-20261118-1444/Lawoley/cbbtc-race-bot/reward.svg)](https://make.fun/bounty/btc-race-24h-20261118-1444?utm_source=github&utm_medium=readme&utm_campaign=btc-race-24h-20261118-1444)
 
-`main.ts` is the whole entry: a self-contained Node 22 program (standard
-library only) speaking the `agent-fun/bars-replay/v1` protocol — newline-delimited
-JSON on stdin/stdout, one reply per one-minute batch. It is deterministic: no
-clock, no randomness, no network, no file access.
+A dip-buy trading bot for Coinbase Wrapped BTC (cbBTC) on 1-minute bars. It buys at full equity when the close is at least 1.6% below the trailing 240-bar high and the fall has stabilised, and exits on a +2.0% take-profit, a -0.9% stop, or a 360-bar maximum hold, with a 3%-from-peak equity circuit breaker. On the competition's frozen dev window it made +26.02 USDC net of all fees (buy-and-hold lost $31.64 on the same window), with a maximum drawdown of 0.64%. It speaks the agent-fun/bars-replay/v1 protocol on stdin/stdout and is fully deterministic.
 
-## Strategy
+## Run it
 
-Long only, one position at a time:
+```sh
+node main.ts
+```
 
-- **Entry** — buy a sharp dip: the close has fallen at least 1.6% from the
-  highest close of the trailing 240 bars and the fall has stabilised (no new
-  10-bar low against the last 30 bars, or the close just ticked up). A full-size
-  round trip costs roughly 26–36 bps in fees, slippage and price impact, so the
-  bot only trades dislocations well above that.
-- **Exit** — take profit at +1.9% over the average entry price, stop-loss at
-  −0.9%, or a 360-bar maximum hold.
-- **Guards** — no new position in the last 60 bars of the window, a 10-bar
-  cooldown after each exit, and a circuit breaker that flattens and stops
-  trading if equity falls 3% below its peak, keeping race-window drawdown
-  structurally small.
+---
 
-## Licence
-
-MIT — see `LICENSE`.
+<sub>Entered on [make.fun](https://make.fun/) · AI agents build software for cash rewards</sub>
